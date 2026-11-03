@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <title>Скидки · Salzhausen</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b0f19; }
+    ::-webkit-scrollbar-thumb { background: #1f293d; border-radius: 9999px; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-[#0b0f19] text-slate-100 min-h-screen font-sans p-3 md:p-6 text-sm">
+  <div class="max-w-4xl mx-auto space-y-4">
+
+    <header class="flex justify-between items-center gap-2 bg-[#111827]/80 backdrop-blur-md p-3.5 rounded-2xl border border-slate-800/80 sticky top-3 z-40 shadow-xl">
+      <div class="flex items-center gap-2.5">
+        <span class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-400 flex items-center justify-center text-lg shadow-lg shadow-emerald-500/20">🛒</span>
+        <div>
+          <h1 class="text-lg font-extrabold leading-tight">Скидки недели</h1>
+          <p id="weekInfo" class="text-[11px] text-slate-400">загрузка…</p>
+        </div>
+      </div>
+      <button onclick="openList()" class="whitespace-nowrap bg-gradient-to-r from-emerald-600 to-cyan-500 text-white px-4 py-2 rounded-xl font-bold hover:brightness-110 active:scale-95 transition shadow-lg shadow-emerald-500/20">🧾 Список <span id="listCount">0</span></button>
+    </header>
+
+    <div id="alertBox" class="hidden rounded-2xl border px-3.5 py-2.5 text-xs"></div>
+
+    <div class="bg-slate-900/60 backdrop-blur p-3.5 rounded-2xl border border-slate-800/80 space-y-3">
+      <input id="q" oninput="render()" placeholder="Поиск: молоко, Barilla, сыр…" class="w-full bg-[#0b0f19] p-3 rounded-xl border border-slate-800 outline-none focus:border-emerald-500/70 transition text-slate-200">
+      <div id="storeChips" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
+      <div id="useChips" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
+      <div class="flex gap-2 flex-wrap items-center">
+        <select id="cat" onchange="render()" class="bg-[#0b0f19] p-2 rounded-xl border border-slate-800 outline-none text-slate-300"><option value="">Все категории</option></select>
+        <select id="sort" onchange="render()" class="bg-[#0b0f19] p-2 rounded-xl border border-slate-800 outline-none text-slate-300">
+          <option value="disc">Сначала самая большая скидка</option>
+          <option value="asc">Цена: дешевле</option>
+          <option value="desc">Цена: дороже</option>
+          <option value="unit">Дешевле за кг / литр</option>
+          <option value="use">По типу (готовка / вкусняшки…)</option>
+          <option value="az">По названию товара</option>
+          <option value="store">По магазину</option>
+        </select>
+        <label class="flex items-center gap-1.5 text-slate-300 cursor-pointer"><input id="onlyDisc" type="checkbox" onchange="render()" class="accent-emerald-500"> только со скидкой</label>
+      </div>
+    </div>
+
+    <div id="grid" class="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3"></div>
+    <p class="text-center text-[10px] text-slate-600 pb-4">Цены берутся из публичных листовок и могут отличаться в конкретном магазине. Обновляется раз в неделю.</p>
+  </div>
+
+  <div id="listModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 z-50" onclick="if(event.target===this)closeList()">
+    <div class="bg-[#111827] border border-slate-800 rounded-3xl w-full max-w-sm max-h-[85vh] overflow-y-auto p-4 space-y-3">
+      <div class="flex justify-between items-center border-b border-slate-800/80 pb-2">
+        <h2 class="font-bold text-base">🧾 Список покупок</h2>
+        <button onclick="closeList()" class="text-slate-400 hover:text-white text-base px-1">✕</button>
+      </div>
+      <div id="listBody" class="space-y-3"></div>
+      <div class="flex gap-2">
+        <button onclick="copyList()" class="flex-1 bg-[#0b0f19] border border-slate-800 text-slate-300 p-2.5 rounded-xl hover:border-emerald-500/50 transition">Копировать</button>
+        <button onclick="clearList()" class="bg-rose-600/20 border border-rose-500/30 text-rose-300 px-4 rounded-xl hover:bg-rose-600/40 transition">Очистить</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const STORE_UI = {
+      lidl:  { n: 'Lidl',        c: 'bg-blue-500/90 text-white' },
+      aldi:  { n: 'Aldi Nord',   c: 'bg-sky-400/90 text-slate-950' },
+      edeka: { n: 'Edeka Düver', c: 'bg-yellow-400/90 text-slate-950' }
+    };
+    let data = { deals: [], stores: {}, cats: {} };
+    let store = 'all', use = '';
+    const USE_FALLBACK = { cook: '🍳 Для готовки', tasty: '😋 Вкусняшки', ready: '🥪 Готовое к еде', drink: '🥤 Напитки', fresh: '🥬 Свежее', other: 'Другое' };
+    const useName = (u) => (data.uses && data.uses[u]) || USE_FALLBACK[u] || '';
+    let list = [];
+    try { list = JSON.parse(localStorage.getItem('sd_list') || '[]'); } catch {}
+
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const eur = (n) => n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+    const fmtDate = (s) => new Date(s + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+    const saveList = () => { try { localStorage.setItem('sd_list', JSON.stringify(list)); } catch {} document.getElementById('listCount').innerText = list.length; };
+
+    async function load() {
+      try {
+        const r = await fetch('deals.json?t=' + Date.now());
+        data = await r.json();
+      } catch {
+        showAlert('Не удалось загрузить deals.json. Открой сайт через хостинг, а не как файл на компьютере.', 'rose');
+      }
+      const w = data.week;
+      document.getElementById('weekInfo').innerText = w ? `${fmtDate(w.from)} – ${fmtDate(w.to)} · обновлено ${new Date(data.updatedAt).toLocaleDateString('ru-RU')}` : '';
+      const age = (Date.now() - new Date(data.updatedAt)) / 864e5;
+      if (age > 8) showAlert(`Данные старше ${Math.floor(age)} дней — возможно, это прошлая неделя. Проверь обновление.`, 'amber');
+      const sel = document.getElementById('cat');
+      Object.entries(data.cats || {}).forEach(([k, v]) => sel.insertAdjacentHTML('beforeend', `<option value="${esc(k)}">${esc(v)}</option>`));
+      list = list.filter(id => data.deals.some(d => d.id === id));
+      saveList();
+      render();
+    }
+
+    function showAlert(text, tone) {
+      const b = document.getElementById('alertBox');
+      b.className = `rounded-2xl border px-3.5 py-2.5 text-xs ${tone === 'rose' ? 'border-rose-500/40 bg-rose-500/10 text-rose-200' : 'border-amber-500/40 bg-amber-500/10 text-amber-200'}`;
+      b.innerText = text;
+    }
+
+    window.setStore = (s) => { store = s; render(); };
+    window.setUse = (u) => { use = use === u ? '' : u; render(); };
+
+    window.render = () => {
+      const q = document.getElementById('q').value.toLowerCase().trim();
+      const cat = document.getElementById('cat').value;
+      const sort = document.getElementById('sort').value;
+      const only = document.getElementById('onlyDisc').checked;
+
+      const counts = { all: data.deals.length };
+      data.deals.forEach(d => counts[d.store] = (counts[d.store] || 0) + 1);
+      document.getElementById('storeChips').innerHTML = ['all', ...Object.keys(STORE_UI)].map(k =>
+        `<button onclick="setStore('${k}')" class="px-4 py-1.5 rounded-xl whitespace-nowrap text-xs font-medium transition ${store === k ? 'bg-gradient-to-r from-emerald-600 to-cyan-500 text-white font-bold shadow-lg shadow-emerald-500/20' : 'bg-slate-950/60 hover:bg-slate-800 text-slate-400'}">${k === 'all' ? 'Все магазины' : STORE_UI[k].n} · ${counts[k] || 0}</button>`).join('');
+
+      const uc = {};
+      data.deals.filter(d => store === 'all' || d.store === store).forEach(d => uc[d.use] = (uc[d.use] || 0) + 1);
+      document.getElementById('useChips').innerHTML = Object.keys(USE_FALLBACK).filter(u => uc[u]).map(u =>
+        `<button onclick="setUse('${u}')" class="px-3 py-1.5 rounded-xl whitespace-nowrap text-xs font-medium transition ${use === u ? 'bg-emerald-600/30 border border-emerald-400/60 text-white' : 'bg-slate-950/60 border border-transparent hover:bg-slate-800 text-slate-400'}">${useName(u)} · ${uc[u]}</button>`).join('');
+
+      let rows = data.deals.filter(d =>
+        (store === 'all' || d.store === store) && (!use || d.use === use) && (!cat || d.cat === cat) && (!only || d.discount) &&
+        (!q || (d.name + ' ' + d.brand).toLowerCase().includes(q)));
+
+      const cmp = {
+        disc: (a, b) => (b.discount || 0) - (a.discount || 0) || a.price - b.price,
+        asc: (a, b) => a.price - b.price,
+        desc: (a, b) => b.price - a.price,
+        az: (a, b) => a.name.localeCompare(b.name, 'de'),
+        unit: (a, b) => (a.unitPrice == null) - (b.unitPrice == null) || (a.unitBase || '').localeCompare(b.unitBase || '') || a.unitPrice - b.unitPrice,
+        use: (a, b) => (a.use || '').localeCompare(b.use || '') || a.name.localeCompare(b.name, 'de'),
+        store: (a, b) => a.store.localeCompare(b.store) || (b.discount || 0) - (a.discount || 0)
+      }[sort];
+      rows.sort(cmp);
+
+      const st = data.stores[store];
+      const note = st && st.note ? `<div class="col-span-full rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-200 text-xs px-3 py-2">${esc(st.note)}</div>` : '';
+      const stale = st && st.stale ? `<div class="col-span-full rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-200 text-xs px-3 py-2">Источник не ответил — показаны данные прошлого обновления.</div>` : '';
+
+      if (!rows.length) {
+        const why = st && !st.count ? `Для ${esc(st.name)} пока нет данных. Они появятся после ближайшего обновления.` : 'Ничего не найдено.';
+        document.getElementById('grid').innerHTML = note + stale + `<div class="col-span-full text-center text-slate-500 py-10">${why}</div>`;
+        return;
+      }
+
+      document.getElementById('grid').innerHTML = note + stale + rows.map(d => {
+        const ui = STORE_UI[d.store] || { n: d.store, c: 'bg-slate-600 text-white' };
+        const inList = list.includes(d.id);
+        return `<div class="bg-slate-900/40 border border-slate-800/80 rounded-2xl overflow-hidden flex flex-col hover:border-emerald-500/40 transition">
+          <div class="relative aspect-[4/3] bg-white">
+            <span class="absolute inset-0 flex items-center justify-center text-4xl opacity-20">🛒</span>
+            ${d.img ? `<img src="${esc(d.img)}" loading="lazy" referrerpolicy="no-referrer" alt="" class="absolute inset-0 w-full h-full object-contain p-2" onerror="this.remove()">` : ''}
+            <span class="absolute top-2 left-2 px-2 py-0.5 rounded-md text-[11px] font-bold shadow ${ui.c}">${ui.n}</span>
+            ${d.discount ? `<span class="absolute top-2 right-2 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-500 text-white shadow">−${d.discount}%</span>` : ''}
+          </div>
+          <div class="p-3 flex flex-col gap-1.5 flex-1">
+            <p class="font-bold text-white leading-snug">${esc(d.name)}</p>
+            <p class="text-xs text-slate-400">${esc(d.brand)}${d.brand && d.use ? ' · ' : ''}${esc(useName(d.use))}</p>
+            <div class="flex items-end justify-between mt-auto gap-2 pt-1">
+              <div>
+                <span class="text-xl font-extrabold text-emerald-400">${eur(d.price)}</span>
+                ${d.old ? `<span class="ml-1.5 text-xs text-slate-500 line-through">${eur(d.old)}</span>` : ''}
+                ${d.unit ? `<p class="text-[11px] text-slate-500">${esc(d.unit)}</p>` : ''}
+              </div>
+              <div class="flex gap-1.5">
+                ${d.link ? `<a href="${esc(d.link)}" target="_blank" rel="noopener noreferrer" title="Открыть страницу предложения" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition">🔗</a>` : ''}
+                <button data-id="${esc(d.id)}" onclick="toggleList(this.dataset.id)" class="w-9 h-9 rounded-xl font-bold text-base transition active:scale-90 ${inList ? 'bg-emerald-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}">${inList ? '✓' : '+'}</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    };
+
+    window.toggleList = (id) => {
+      list = list.includes(id) ? list.filter(x => x !== id) : [...list, id];
+      saveList(); render();
+    };
+
+    function listDeals() { return list.map(id => data.deals.find(d => d.id === id)).filter(Boolean); }
+
+    window.openList = () => {
+      const items = listDeals();
+      const body = document.getElementById('listBody');
+      if (!items.length) body.innerHTML = '<p class="text-slate-500 text-center py-6">Пусто. Нажимай «+» на карточках.</p>';
+      else {
+        const total = items.reduce((s, d) => s + d.price, 0);
+        body.innerHTML = Object.keys(STORE_UI).map(k => {
+          const part = items.filter(d => d.store === k);
+          if (!part.length) return '';
+          return `<div><p class="text-xs font-bold text-slate-300 mb-1">${STORE_UI[k].n} · ${eur(part.reduce((s, d) => s + d.price, 0))}</p>` +
+            part.map(d => `<div class="flex justify-between items-center gap-2 bg-[#0b0f19] border border-slate-800 rounded-lg px-2.5 py-1.5 mb-1"><span class="truncate">${esc(d.name)}${d.brand ? ' · ' + esc(d.brand) : ''}</span><span class="flex items-center gap-2 whitespace-nowrap"><b class="text-emerald-400">${eur(d.price)}</b><button data-id="${esc(d.id)}" onclick="toggleList(this.dataset.id);openList()" class="text-slate-500 hover:text-rose-400">✕</button></span></div>`).join('') + '</div>';
+        }).join('') + `<p class="text-right font-bold">Итого: ${eur(total)}</p>`;
+      }
+      document.getElementById('listModal').classList.remove('hidden');
+    };
+    window.closeList = () => document.getElementById('listModal').classList.add('hidden');
+    window.clearList = () => { list = []; saveList(); render(); openList(); };
+    window.copyList = async () => {
+      const text = listDeals().map(d => `• ${d.name}${d.brand ? ' (' + d.brand + ')' : ''} — ${eur(d.price)} [${STORE_UI[d.store]?.n || d.store}]`).join('\n');
+      try { await navigator.clipboard.writeText(text); alert('Список скопирован'); } catch { prompt('Скопируй список:', text); }
+    };
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeList(); });
+
+    load();
+  </script>
+</body>
+</html>
